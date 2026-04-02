@@ -1,7 +1,7 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'Amped I — Interface',
+  title: 'Amped I — Project Progress',
   description: 'Internal interface — Amped I',
 }
 
