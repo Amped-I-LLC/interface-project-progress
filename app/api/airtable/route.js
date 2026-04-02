@@ -6,32 +6,23 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 
    Security model:
    1. Validates the user is authenticated (anon key + session)
-   2. Reads airtable_keys using service role (bypasses RLS)
-   3. Calls Airtable server-side — key never reaches browser
+   2. Reads airtable_connections using service role (bypasses RLS)
+   3. Calls Airtable server-side — token never reaches browser
    4. Returns only records to the browser
-
-   The airtable_keys table has NO RLS read policy for
-   authenticated users — only the service role can read it.
-   This prevents users from querying keys directly via the
-   browser Supabase client.
-
-   SUPABASE_SERVICE_ROLE_KEY is server-only (no NEXT_PUBLIC_).
-   It is physically excluded from the browser JS bundle.
+   5. Handles Airtable pagination automatically (all pages)
 
    Query params:
-     app   — matches airtable_keys.app_name (e.g. 'interface-sales-dashboard')
-     table — the Airtable table name to query
-     view  — (optional) Airtable view name
-
-   Example call from the browser:
-     const res = await fetch('/api/airtable?app=interface-sales-dashboard&table=Projects')
-     const records = await res.json()
+     app    — matches airtable_connections.app (e.g. 'interface-project-progress')
+     table  — the Airtable table name to query
+     view   — (optional) Airtable view name
+     filter — (optional) Airtable filterByFormula string
    ============================================================ */
 export async function GET(request) {
   const { searchParams } = new URL(request.url)
   const appName   = searchParams.get('app')
   const tableName = searchParams.get('table')
   const viewName  = searchParams.get('view')
+  const filter    = searchParams.get('filter')
 
   if (!appName || !tableName) {
     return Response.json({ error: 'Missing required params: app, table' }, { status: 400 })
@@ -45,36 +36,45 @@ export async function GET(request) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  /* --- Step 2: Read airtable_keys using service role --- */
-  /* Service role key is server-only — never prefixed with NEXT_PUBLIC_ */
+  /* --- Step 2: Read airtable_connections using service role --- */
   const admin = createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
-  const { data: keyRow, error: keyError } = await admin
-    .from('airtable_keys')
-    .select('api_key, base_id')
-    .eq('app_name', appName)
+  const { data: conn, error: connError } = await admin
+    .from('airtable_connections')
+    .select('token, base_id')
+    .eq('app', appName)
     .single()
 
-  if (keyError || !keyRow) {
+  if (connError || !conn) {
     return Response.json({ error: 'Airtable credentials not found' }, { status: 404 })
   }
 
-  /* --- Step 3: Call Airtable — key never leaves the server --- */
-  const url = new URL(`https://api.airtable.com/v0/${keyRow.base_id}/${encodeURIComponent(tableName)}`)
-  if (viewName) url.searchParams.set('view', viewName)
+  /* --- Step 3: Call Airtable with pagination — token never leaves the server --- */
+  const allRecords = []
+  let offset = undefined
 
-  const airtableRes = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${keyRow.api_key}` },
-    next: { revalidate: 60 },
-  })
+  do {
+    const url = new URL(`https://api.airtable.com/v0/${conn.base_id}/${encodeURIComponent(tableName)}`)
+    url.searchParams.set('pageSize', '100')
+    if (viewName) url.searchParams.set('view', viewName)
+    if (filter)   url.searchParams.set('filterByFormula', filter)
+    if (offset)   url.searchParams.set('offset', offset)
 
-  if (!airtableRes.ok) {
-    return Response.json({ error: 'Airtable request failed' }, { status: airtableRes.status })
-  }
+    const airtableRes = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${conn.token}` },
+    })
 
-  const data = await airtableRes.json()
-  return Response.json(data.records ?? [])
+    if (!airtableRes.ok) {
+      return Response.json({ error: 'Airtable request failed' }, { status: airtableRes.status })
+    }
+
+    const data = await airtableRes.json()
+    allRecords.push(...(data.records ?? []))
+    offset = data.offset
+  } while (offset)
+
+  return Response.json(allRecords)
 }
