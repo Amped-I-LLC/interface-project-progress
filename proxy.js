@@ -21,7 +21,7 @@ import { NextResponse } from 'next/server'
 const PUBLIC_ROUTES = ['/login']
 const PORTAL_URL = process.env.NEXT_PUBLIC_PORTAL_URL || 'https://portal.amped-i.com'
 
-export async function middleware(request) {
+export async function proxy(request) {
   const { pathname } = request.nextUrl
   const response = NextResponse.next({ request })
 
