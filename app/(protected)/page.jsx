@@ -6,23 +6,23 @@ import { createClient } from '@/lib/supabase/client'
 /* ── Config ── */
 const APP    = 'interface-project-progress'
 const TABLE  = 'All Projects'
-const STAGES = ['Active', 'Active (Accrual)', 'Active (As-Builts)']
-const FILTER = `OR(${STAGES.map(s => `{Ops Stage}="${s}"`).join(',')})`
+const FILTER = `{Status}="A"`
 
 const F = {
-  project:   'Level1Name',
-  client:    'ClientName',
-  stage:     'Ops Stage',
-  contract:  'Contract',
-  jtd:       'JTD',
-  remaining: 'Contract Remaining',
-  status:    'Final Overall Budget Status',
-  pm:        'ProjMgrName',
-  pct:       'PM Reported % Complete',
-  baseline:  'Planned Hours',
-  actual:    'Actual Hours',
-  drawings:  'Drawing Count',
-  planStart: 'PlanStartDate',
+  project:       'Level1Name',
+  client:        'ClientName',
+  stage:         'Ops Stage',
+  projectStatus: 'Status',
+  contract:      'Contract',
+  jtd:           'JTD',
+  remaining:     'Contract Remaining',
+  budgetStatus:  'Final Overall Budget Status',
+  pm:            'ProjMgrName',
+  pct:           'PM Reported % Complete',
+  baseline:      'Planned Hours',
+  actual:        'Actual Hours',
+  drawings:      'Drawing Count',
+  planStart:     'PlanStartDate',
 }
 
 /* ── Utilities ── */
@@ -412,7 +412,7 @@ export default function ProjectProgressPage() {
   const [lastFetched,  setLastFetched]  = useState(null)
   const [sortMode,     setSortMode]     = useState('client')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [stageFilter,  setStageFilter]  = useState('all')
+  const [stageFilter,  setStageFilter]  = useState(new Set())
   const [searchQuery,  setSearchQuery]  = useState('')
   const [collapsed,    setCollapsed]    = useState(new Set())
 
@@ -455,7 +455,7 @@ export default function ProjectProgressPage() {
       name:      strField(f[F.project]) || 'Unnamed Project',
       client:    strField(f[F.client])  || 'Unknown Client',
       stage:     String(f[F.stage] || ''),
-      status:    parseStatus(f[F.status]),
+      status:    parseStatus(f[F.budgetStatus]),
       contract,
       jtd,
       remaining: isNaN(rawRem) ? contract - jtd : rawRem,
@@ -471,7 +471,7 @@ export default function ProjectProgressPage() {
   /* Apply filters + search */
   const filtered = useMemo(() => {
     let r = enriched
-    if (stageFilter  !== 'all') r = r.filter(p => p.stage  === stageFilter)
+    if (stageFilter.size > 0) r = r.filter(p => stageFilter.has(p.stage))
     if (statusFilter !== 'all') r = r.filter(p => p.status === statusFilter)
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -647,13 +647,25 @@ export default function ProjectProgressPage() {
         padding: '9px 32px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
       }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: '#9ba5c0', textTransform: 'uppercase', letterSpacing: '0.5px', marginRight: 4 }}>Ops Stage:</span>
-        {[
-          { label: 'All Active',        val: 'all'                },
-          { label: 'Active',            val: 'Active'             },
-          { label: 'Active (Accrual)',   val: 'Active (Accrual)'   },
-          { label: 'Active (As-Builts)', val: 'Active (As-Builts)' },
-        ].map(({ label, val }) => (
-          <button key={val} onClick={() => setStageFilter(val)} style={stageBtnStyle(stageFilter === val)}>{label}</button>
+        <button
+          onClick={() => setStageFilter(new Set())}
+          style={stageBtnStyle(stageFilter.size === 0)}
+        >
+          All Active
+        </button>
+        {['Active', 'Active (Accrual)', 'Active (As-Builts)'].map(val => (
+          <button
+            key={val}
+            onClick={() => setStageFilter(prev => {
+              const next = new Set(prev)
+              if (next.has(val)) next.delete(val)
+              else next.add(val)
+              return next.size === 0 ? new Set() : next
+            })}
+            style={stageBtnStyle(stageFilter.has(val))}
+          >
+            {val}
+          </button>
         ))}
       </div>
 
